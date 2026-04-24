@@ -78,6 +78,8 @@ That's it — sessions in that channel are now tracked. Use `/clocked-setup list
 
 For a long-running install, run the bot under systemd. A template unit file ships in [`deploy/clocked.service`](./deploy/clocked.service).
 
+> **Heads-up on paths and user names below.** The commands and the `deploy/clocked.service` template use `/opt/nodeapps/clocked-bot` as the install directory and `nodeapps` as the runtime user — that's the author's own production setup, kept here as a concrete reference. If you clone somewhere else (e.g. `/home/alice/clocked-bot`) or run under a different user, adjust both **this snippet** and the matching lines in `deploy/clocked.service` (`WorkingDirectory`, `EnvironmentFile`, `ExecStart`, `User`, `Group`, `ReadWritePaths`) before continuing.
+
 ```bash
 # 1. Pick an unprivileged user that will run the bot. If you already have a
 #    shared `nodeapps` user for Node services, reuse it; otherwise create one:
@@ -86,9 +88,8 @@ For a long-running install, run the bot under systemd. A template unit file ship
 # 2. Make sure the runtime user owns the install directory
 sudo chown -R nodeapps:nodeapps /opt/nodeapps/clocked-bot
 
-# 3. Install the unit file
+# 3. Install the unit file (edit first if your paths or user differ)
 sudo cp deploy/clocked.service /etc/systemd/system/clocked.service
-#    (edit the file if your paths differ — WorkingDirectory, ExecStart, User)
 
 # 4. Enable and start
 sudo systemctl daemon-reload
