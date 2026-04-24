@@ -1,8 +1,7 @@
 import { getT, DEFAULT_LOCALE } from './i18n/index.js';
 
-// PREFIX is bot-level: it's baked into the slash command names at registration time,
-// so one bot instance = one prefix for all guilds it serves.
-export const PREFIX = process.env.COMMAND_PREFIX ?? 'deepwork';
+// Baked into the slash command names at registration time.
+export const PREFIX = 'clocked';
 
 // Defaults inherited by every new guild when it's created via /setup
 // (or when legacy env-var config is seeded on startup).

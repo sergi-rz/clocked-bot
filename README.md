@@ -25,11 +25,11 @@ One bot instance can serve **many Discord servers** — each guild configures it
 
 | Command | Description |
 |---|---|
-| `/{PREFIX}-ranking [period] [channel]` | Top 10 by time (global / year / month / week / today), optionally filtered by channel |
-| `/{PREFIX}-mystats [channel]` | Your personal stats and streaks |
-| `/{PREFIX}-buddies [period] [channel]` | Who you've spent the most time with |
-| `/{PREFIX}-optout` | Toggle tracking on/off for your account |
-| `/{PREFIX}-setup` | Configure tracked channels, language, timezone, etc. (admins only) |
+| `/clocked-ranking [period] [channel]` | Top 10 by time (global / year / month / week / today), optionally filtered by channel |
+| `/clocked-mystats [channel]` | Your personal stats and streaks |
+| `/clocked-buddies [period] [channel]` | Who you've spent the most time with |
+| `/clocked-optout` | Toggle tracking on/off for your account |
+| `/clocked-setup` | Configure tracked channels, language, timezone, etc. (admins only) |
 
 ## Hosted version?
 
@@ -69,10 +69,10 @@ npm start
 Once the bot is running and invited, an admin of each server runs:
 
 ```
-/deepwork-setup add channel:<#your-voice-channel>
+/clocked-setup add channel:<#your-voice-channel>
 ```
 
-That's it — sessions in that channel are now tracked. Use `/deepwork-setup list` to see the current config, and `/deepwork-setup config` to change language, timezone, summary hour, or activity name.
+That's it — sessions in that channel are now tracked. Use `/clocked-setup list` to see the current config, and `/clocked-setup config` to change language, timezone, summary hour, or activity name.
 
 ### Production (systemd)
 
@@ -109,7 +109,6 @@ Bot-level settings (env vars in `.env`):
 |---|---|---|---|
 | `DISCORD_TOKEN` | ✅ | — | Bot token from Discord Developer Portal |
 | `CLIENT_ID` | ✅ | — | Application ID |
-| `COMMAND_PREFIX` | | `deepwork` | Slash command prefix (baked into command names) |
 | `POLL_INTERVAL_MS` | | `1800000` | Reconciliation poll interval in ms (30 min) |
 | `MIN_SESSION_MINUTES` | | `5` | Minimum session duration to count in stats |
 | `DEFAULT_ACTIVITY_NAME` | | `Deep Work` | Name shown in embeds for new guilds; also used in command descriptions |
@@ -118,7 +117,7 @@ Bot-level settings (env vars in `.env`):
 | `DEFAULT_SUMMARY_HOUR` | | `9` | Default weekly summary hour for new guilds (0–23) |
 | `DEV_GUILD_ID` | | — | Dev-only. Registers commands to one guild instantly (skips global 1h propagation) |
 
-Per-guild settings (managed via `/deepwork-setup config` from Discord):
+Per-guild settings (managed via `/clocked-setup config` from Discord):
 
 - **Tracked channels** — one or more voice channels per server
 - **Activity name** — label used in embeds
