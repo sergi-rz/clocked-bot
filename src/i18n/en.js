@@ -65,6 +65,7 @@ export default {
       optTimezone:     'Timezone (e.g. Europe/Madrid)',
       optSummaryHour:  'Weekly summary hour (0-23)',
       added:           (ch) => `Channel ${ch} added to tracking.`,
+      missingPerms:    (ps) => `⚠️ Heads-up: Clocked is missing these permissions in the channel: **${ps}**. The weekly summary won't post there until you grant them to the Clocked role in the channel settings.`,
       alreadyAdded:    (ch) => `Channel ${ch} is already tracked.`,
       removed:         (ch) => `Channel ${ch} removed from tracking.`,
       notTracked:      (ch) => `Channel ${ch} was not being tracked.`,

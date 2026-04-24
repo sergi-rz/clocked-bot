@@ -65,6 +65,7 @@ export default {
       optTimezone:     'Zona horaria (ej: Europe/Madrid)',
       optSummaryHour:  'Hora del resumen semanal (0-23)',
       added:           (ch) => `Canal ${ch} añadido al tracking.`,
+      missingPerms:    (ps) => `⚠️ Aviso: Clocked no tiene estos permisos en el canal: **${ps}**. El resumen semanal no podrá postearse ahí hasta que los concedas al rol Clocked en los ajustes del canal.`,
       alreadyAdded:    (ch) => `El canal ${ch} ya está en el tracking.`,
       removed:         (ch) => `Canal ${ch} eliminado del tracking.`,
       notTracked:      (ch) => `El canal ${ch} no estaba en el tracking.`,

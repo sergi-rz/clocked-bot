@@ -91,7 +91,20 @@ export async function execute(interaction) {
     // Open sessions for anyone already connected, so admins don't have to wait
     // up to POLL_INTERVAL_MS for the first reconciliation tick.
     pollChannel(interaction.client, guildId, ch.id);
-    return interaction.reply({ content: s.added(`<#${ch.id}>`), flags: MessageFlags.Ephemeral });
+
+    // Warn up front if the bot can't post the weekly summary here. Locked-down
+    // servers often deny Send Messages / Embed Links on voice-channel text chats,
+    // and admins would otherwise discover the problem next Monday when the
+    // summary silently fails.
+    const perms = ch.permissionsFor(interaction.guild.members.me);
+    const missing = [];
+    if (!perms?.has(PermissionFlagsBits.SendMessages)) missing.push('Send Messages');
+    if (!perms?.has(PermissionFlagsBits.EmbedLinks))   missing.push('Embed Links');
+
+    let content = s.added(`<#${ch.id}>`);
+    if (missing.length) content += '\n\n' + s.missingPerms(missing.join(', '));
+
+    return interaction.reply({ content, flags: MessageFlags.Ephemeral });
   }
 
   if (sub === 'remove') {
