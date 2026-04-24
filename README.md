@@ -110,7 +110,7 @@ Bot-level settings (env vars in `.env`):
 |---|---|---|---|
 | `DISCORD_TOKEN` | ✅ | — | Bot token from Discord Developer Portal |
 | `CLIENT_ID` | ✅ | — | Application ID |
-| `POLL_INTERVAL_MS` | | `1800000` | Reconciliation poll interval in ms (30 min) |
+| `POLL_INTERVAL_MS` | | `600000` | Reconciliation poll interval in ms (10 min) |
 | `MIN_SESSION_MINUTES` | | `5` | Minimum session duration to count in stats |
 | `DEFAULT_ACTIVITY_NAME` | | `Deep Work` | Name shown in embeds for new guilds; also used in command descriptions |
 | `DEFAULT_LOCALE` | | `es` | `es` / `en` — default for new guilds; also used in command descriptions |

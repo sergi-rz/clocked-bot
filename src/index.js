@@ -51,7 +51,7 @@ client.once('clientReady', () => {
   seedFromEnv();
 
   runPoll(client);
-  setInterval(() => runPoll(client), Number(process.env.POLL_INTERVAL_MS) || 1_800_000);
+  setInterval(() => runPoll(client), Number(process.env.POLL_INTERVAL_MS) || 600_000);
   startScheduler(client);
 });
 
