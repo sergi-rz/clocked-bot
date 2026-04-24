@@ -8,7 +8,10 @@ import {
 // This recovers from two failure cases:
 //   1. A user joined while the bot was down — no "join" event was received, so we open the session now.
 //   2. A user left while the bot was down — no "leave" event was received, so we close the orphaned session.
-function pollChannel(client, guildId, channelId) {
+// Exported so /clocked-setup add can trigger an immediate reconciliation — otherwise
+// users already connected when a channel is registered wait up to POLL_INTERVAL_MS
+// to be picked up.
+export function pollChannel(client, guildId, channelId) {
   const channel = client.channels.cache.get(channelId);
 
   if (!channel?.isVoiceBased()) {

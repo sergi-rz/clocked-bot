@@ -7,6 +7,7 @@ import {
 } from '../db.js';
 import { PREFIX, DEFAULTS, displayFor } from '../utils.js';
 import { scheduleGuild }                from '../scheduler.js';
+import { pollChannel }                  from '../poller.js';
 import { getT, DEFAULT_LOCALE }         from '../i18n/index.js';
 
 const bootT = getT(DEFAULT_LOCALE);
@@ -87,6 +88,9 @@ export async function execute(interaction) {
     }
     setGuildChannels(guildId, [...channels, ch.id]);
     scheduleGuild(interaction.client, guildId);
+    // Open sessions for anyone already connected, so admins don't have to wait
+    // up to POLL_INTERVAL_MS for the first reconciliation tick.
+    pollChannel(interaction.client, guildId, ch.id);
     return interaction.reply({ content: s.added(`<#${ch.id}>`), flags: MessageFlags.Ephemeral });
   }
 
