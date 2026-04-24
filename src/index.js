@@ -2,7 +2,7 @@ import { Client, GatewayIntentBits, Collection, MessageFlags } from 'discord.js'
 import 'dotenv/config';
 import { runPoll }                               from './poller.js';
 import { handleJoin, handleLeave }               from './sessions.js';
-import { startScheduler, unscheduleGuild }       from './scheduler.js';
+import { startScheduler, scheduleGuild, unscheduleGuild } from './scheduler.js';
 import { ensureGuildConfig, getGuildConfig, updateGuildField } from './db.js';
 import { DEFAULTS }                              from './utils.js';
 import { getT }                                  from './i18n/index.js';
@@ -84,13 +84,24 @@ client.on('voiceStateUpdate', (oldState, newState) => {
 });
 
 // When the bot is kicked from a guild, stop its scheduled weekly summary and mark inactive.
-// Historical data is kept; if the bot is re-added, /setup will reactivate it.
+// Historical data is kept; if the bot is re-added, guildCreate below reactivates it.
 client.on('guildDelete', guild => {
   console.log(`[guild] Removed from ${guild.id}`);
   unscheduleGuild(guild.id);
   if (getGuildConfig(guild.id)) {
     updateGuildField(guild.id, 'active', 0);
   }
+});
+
+// Inverse of guildDelete: when the bot rejoins a guild it was previously kicked
+// from, flip active back on and re-arm the weekly summary cron. No-op for fresh
+// installs (no config row yet) — /clocked-setup will create one with active=1.
+client.on('guildCreate', guild => {
+  console.log(`[guild] Joined ${guild.id}`);
+  const cfg = getGuildConfig(guild.id);
+  if (!cfg) return;
+  if (!cfg.active) updateGuildField(guild.id, 'active', 1);
+  if (cfg.channel_ids.length) scheduleGuild(client, guild.id);
 });
 
 client.on('interactionCreate', async interaction => {
