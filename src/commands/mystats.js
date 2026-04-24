@@ -1,38 +1,44 @@
 import { SlashCommandBuilder, EmbedBuilder, MessageFlags, ChannelType } from 'discord.js';
-import { getUserStats, getUserDays, isOptedOut }                         from '../db.js';
-import { PREFIX, ACTIVITY, fmt, computeStreaks }                          from '../utils.js';
-import { t }                                                              from '../i18n/index.js';
+import { getUserStats, getUserDays, isOptedOut, getGuildConfig }         from '../db.js';
+import { PREFIX, fmt, computeStreaks, displayFor }                        from '../utils.js';
+import { getT, DEFAULT_LOCALE }                                           from '../i18n/index.js';
+
+const bootT        = getT(DEFAULT_LOCALE);
+const bootActivity = process.env.DEFAULT_ACTIVITY_NAME ?? process.env.ACTIVITY_NAME ?? 'Deep Work';
 
 export const data = new SlashCommandBuilder()
   .setName(`${PREFIX}-mystats`)
-  .setDescription(t.cmd.mystats.desc(ACTIVITY.toLowerCase()))
+  .setDescription(bootT.cmd.mystats.desc(bootActivity.toLowerCase()))
+  .setDMPermission(false)
   .addChannelOption(opt =>
     opt.setName('channel')
-       .setDescription(t.opts.channel)
+       .setDescription(bootT.opts.channel)
        .addChannelTypes(ChannelType.GuildVoice)
   );
 
 export async function execute(interaction) {
-  const userId  = interaction.user.id;
-  const channel = interaction.options.getChannel('channel');
+  const cfg       = getGuildConfig(interaction.guildId);
+  const { t, activity } = displayFor(cfg);
+  const userId    = interaction.user.id;
+  const channel   = interaction.options.getChannel('channel');
 
-  if (isOptedOut(userId)) {
+  if (isOptedOut(interaction.guildId, userId)) {
     return interaction.reply({ content: t.cmd.mystats.optedOut(PREFIX), flags: MessageFlags.Ephemeral });
   }
 
-  const stats = getUserStats(userId, channel?.id ?? null);
+  const stats = getUserStats(interaction.guildId, userId, channel?.id ?? null);
 
   if (!stats?.session_count) {
     return interaction.reply({ content: t.cmd.mystats.noData, flags: MessageFlags.Ephemeral });
   }
 
-  const days              = getUserDays(userId, channel?.id ?? null);
+  const days              = getUserDays(interaction.guildId, userId, channel?.id ?? null);
   const { current, best } = computeStreaks(days);
   const m                 = t.cmd.mystats;
 
   const title = channel
-    ? `${m.title(ACTIVITY.toLowerCase(), interaction.user.username)} — #${channel.name}`
-    : m.title(ACTIVITY.toLowerCase(), interaction.user.username);
+    ? `${m.title(activity.toLowerCase(), interaction.user.username)} — #${channel.name}`
+    : m.title(activity.toLowerCase(), interaction.user.username);
 
   const embed = new EmbedBuilder()
     .setTitle(title)

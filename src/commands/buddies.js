@@ -1,52 +1,60 @@
 import { SlashCommandBuilder, EmbedBuilder, MessageFlags, ChannelType } from 'discord.js';
-import { getCompanions }                                                  from '../db.js';
-import { PREFIX, ACTIVITY, CHANNELS, periodStart, fmt }                   from '../utils.js';
-import { t }                                                              from '../i18n/index.js';
+import { getCompanions, getGuildConfig }                                 from '../db.js';
+import { PREFIX, periodStart, fmt, displayFor }                          from '../utils.js';
+import { getT, DEFAULT_LOCALE }                                          from '../i18n/index.js';
 
-function formatRows(rows) {
+const bootT        = getT(DEFAULT_LOCALE);
+const bootActivity = process.env.DEFAULT_ACTIVITY_NAME ?? process.env.ACTIVITY_NAME ?? 'Deep Work';
+
+function formatRows(rows, together) {
   return rows.map((r, i) =>
-    `**${i + 1}.** **${r.username}** — ${fmt(r.shared_minutes)} ${t.cmd.buddies.together}`
+    `**${i + 1}.** **${r.username}** — ${fmt(r.shared_minutes)} ${together}`
   ).join('\n');
 }
 
 export const data = new SlashCommandBuilder()
   .setName(`${PREFIX}-buddies`)
-  .setDescription(t.cmd.buddies.desc(ACTIVITY.toLowerCase()))
+  .setDescription(bootT.cmd.buddies.desc(bootActivity.toLowerCase()))
+  .setDMPermission(false)
   .addStringOption(opt =>
     opt.setName('period')
-       .setDescription(t.opts.period)
-       .addChoices(...t.periods.choices)
+       .setDescription(bootT.opts.period)
+       .addChoices(...bootT.periods.choices)
   )
   .addChannelOption(opt =>
     opt.setName('channel')
-       .setDescription(t.opts.channel)
+       .setDescription(bootT.opts.channel)
        .addChannelTypes(ChannelType.GuildVoice)
   );
 
 export async function execute(interaction) {
-  const key    = interaction.options.getString('period') ?? 'global';
-  const channel = interaction.options.getChannel('channel');
-  const since  = periodStart(key);
-  const label  = t.periods.labels[key];
-  const userId = interaction.user.id;
+  const cfg = getGuildConfig(interaction.guildId);
+  const { t, activity } = displayFor(cfg);
+  const channels = cfg?.channel_ids ?? [];
 
-  // Single channel selected or only one channel configured: simple view.
-  if (channel || CHANNELS.length <= 1) {
-    const rows = getCompanions(userId, since, channel?.id ?? null);
+  const key     = interaction.options.getString('period') ?? 'global';
+  const channel = interaction.options.getChannel('channel');
+  const since   = periodStart(key);
+  const label   = t.periods.labels[key];
+  const userId  = interaction.user.id;
+  const together = t.cmd.buddies.together;
+
+  if (channel || channels.length <= 1) {
+    const rows = getCompanions(interaction.guildId, userId, since, channel?.id ?? null);
 
     if (!rows.length) {
       return interaction.reply({ content: t.cmd.buddies.noData(label), flags: MessageFlags.Ephemeral });
     }
 
     const title = channel
-      ? `${t.cmd.buddies.title(ACTIVITY.toLowerCase(), label)} — #${channel.name}`
-      : t.cmd.buddies.title(ACTIVITY.toLowerCase(), label);
+      ? `${t.cmd.buddies.title(activity.toLowerCase(), label)} — #${channel.name}`
+      : t.cmd.buddies.title(activity.toLowerCase(), label);
 
     return interaction.reply({
       embeds: [
         new EmbedBuilder()
           .setTitle(title)
-          .setDescription(formatRows(rows))
+          .setDescription(formatRows(rows, together))
           .setColor(0xfee75c)
           .setTimestamp(),
       ],
@@ -57,16 +65,16 @@ export async function execute(interaction) {
   // Multiple channels, no filter: show global aggregate + one section per channel.
   const sections = [];
 
-  const globalRows = getCompanions(userId, since);
+  const globalRows = getCompanions(interaction.guildId, userId, since);
   if (globalRows.length) {
-    sections.push(`**🌐 Global**\n${formatRows(globalRows)}`);
+    sections.push(`**🌐 Global**\n${formatRows(globalRows, together)}`);
   }
 
-  for (const channelId of CHANNELS) {
+  for (const channelId of channels) {
     const ch   = interaction.client.channels.cache.get(channelId);
-    const rows = getCompanions(userId, since, channelId);
+    const rows = getCompanions(interaction.guildId, userId, since, channelId);
     if (rows.length) {
-      sections.push(`**#${ch?.name ?? channelId}**\n${formatRows(rows)}`);
+      sections.push(`**#${ch?.name ?? channelId}**\n${formatRows(rows, together)}`);
     }
   }
 
@@ -77,7 +85,7 @@ export async function execute(interaction) {
   await interaction.reply({
     embeds: [
       new EmbedBuilder()
-        .setTitle(t.cmd.buddies.title(ACTIVITY.toLowerCase(), label))
+        .setTitle(t.cmd.buddies.title(activity.toLowerCase(), label))
         .setDescription(sections.join('\n\n'))
         .setColor(0xfee75c)
         .setTimestamp(),

@@ -1,6 +1,14 @@
 # Discord Session Tracker
 
-A Discord bot that tracks time spent in voice channels. Requires a server (VPS or similar) running 24/7 to store the SQLite database and keep the process alive. Instead of relying solely on real-time WebSocket events (which can be missed if the bot goes down), it uses a **hybrid approach**: real-time events for accuracy + periodic polling for resilience.
+Track time spent in voice channels across your Discord community. Useful for:
+
+- **Study / co-working servers** ("Study with me", Pomodoro rooms) where members want to see who's putting in the hours
+- **Paid masterminds and accountability groups** where the organiser needs objective attendance data without relying on self-reporting
+- **Remote teams** running deep-work sessions together and tracking shared focus time
+
+Instead of relying solely on real-time WebSocket events (which can be missed if the bot goes down), it uses a **hybrid approach**: real-time events for accuracy + periodic polling for resilience.
+
+One bot instance can serve **many Discord servers** — each guild configures itself independently through a `/setup` slash command.
 
 ## Features
 
@@ -8,8 +16,9 @@ A Discord bot that tracks time spent in voice channels. Requires a server (VPS o
 - **Personal stats** — total time, session count, average session, longest session, current and best streaks
 - **Companions** — who you've spent the most time with, by period
 - **Weekly summary** — automatically posted every Monday to each tracked channel
-- **Multiple channels** — track several voice channels independently, each with its own stats
-- **Opt-out** — any user can disable tracking of their sessions at any time
+- **Multiple channels** — track several voice channels independently per server
+- **Multi-server** — a single bot instance handles any number of guilds, each with their own config
+- **Opt-out** — users can disable tracking of their sessions at any time (per server)
 - **Minimum session filter** — accidental short connections don't affect stats
 
 ## Commands
@@ -20,8 +29,13 @@ A Discord bot that tracks time spent in voice channels. Requires a server (VPS o
 | `/{PREFIX}-mystats [channel]` | Your personal stats and streaks |
 | `/{PREFIX}-buddies [period] [channel]` | Who you've spent the most time with |
 | `/{PREFIX}-optout` | Toggle tracking on/off for your account |
+| `/{PREFIX}-setup` | Configure tracked channels, language, timezone, etc. (admins only) |
 
-## Setup
+## Hosted version?
+
+If you'd rather not run this on your own VPS, I'm exploring offering a hosted instance at [clocked.club](https://clocked.club). Drop me a line ([open an issue](https://github.com/sergi-rz/clocked-bot/issues) or DM on X) if that would be useful.
+
+## Self-host setup
 
 ### 1. Create a Discord application
 
@@ -29,18 +43,18 @@ A Discord bot that tracks time spent in voice channels. Requires a server (VPS o
 2. **Bot** section → **Add Bot** → copy the **Token**
 3. Enable **Server Members Intent**
 4. **OAuth2 → URL Generator** → scopes: `bot` + `applications.commands` → permissions: `View Channel` + `Send Messages`
-5. Use the generated URL to invite the bot to your server
+5. Use the generated URL to invite the bot to your server(s)
 
 ### 2. Install and configure
 
 Requires [Node.js v22+](https://nodejs.org).
 
 ```bash
-git clone https://github.com/sergi-rz/discord-sessions-tracker
-cd discord-sessions-tracker
+git clone https://github.com/sergi-rz/clocked-bot
+cd clocked-bot
 npm install
 cp .env.example .env
-# edit .env with your values
+# edit .env with at least DISCORD_TOKEN and CLIENT_ID
 ```
 
 ### 3. Register slash commands and start
@@ -50,47 +64,93 @@ npm run deploy   # register slash commands (run once, or after command changes)
 npm start
 ```
 
-For production, use a process manager like [pm2](https://pm2.keymetrics.io/):
+### 4. Configure each server
+
+Once the bot is running and invited, an admin of each server runs:
+
+```
+/deepwork-setup add channel:<#your-voice-channel>
+```
+
+That's it — sessions in that channel are now tracked. Use `/deepwork-setup list` to see the current config, and `/deepwork-setup config` to change language, timezone, summary hour, or activity name.
+
+### Production (systemd)
+
+For a long-running install, run the bot under systemd. A template unit file ships in [`deploy/clocked.service`](./deploy/clocked.service).
 
 ```bash
-npm install -g pm2
-pm2 start src/index.js --name discord-session-tracker
-pm2 save
-pm2 startup
+# 1. Pick an unprivileged user that will run the bot. If you already have a
+#    shared `nodeapps` user for Node services, reuse it; otherwise create one:
+#    sudo useradd --system --home-dir /opt/nodeapps --shell /usr/sbin/nologin nodeapps
+
+# 2. Make sure the runtime user owns the install directory
+sudo chown -R nodeapps:nodeapps /opt/nodeapps/clocked-bot
+
+# 3. Install the unit file
+sudo cp deploy/clocked.service /etc/systemd/system/clocked.service
+#    (edit the file if your paths differ — WorkingDirectory, ExecStart, User)
+
+# 4. Enable and start
+sudo systemctl daemon-reload
+sudo systemctl enable --now clocked
+
+# 5. Check status / logs
+sudo systemctl status clocked
+sudo journalctl -u clocked -f
 ```
+
+The unit file includes standard hardening (`NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp`, etc.) and allows writes only to the install directory (where `sessions.db` lives).
 
 ## Configuration
 
-All configuration is done via environment variables in `.env`:
+Bot-level settings (env vars in `.env`):
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `DISCORD_TOKEN` | ✅ | — | Bot token from Discord Developer Portal |
 | `CLIENT_ID` | ✅ | — | Application ID |
-| `GUILD_ID` | ✅ | — | Your Discord server ID |
-| `VOICE_CHANNEL_IDS` | ✅ | — | Comma-separated list of voice channel IDs to track (e.g. `id1,id2`) |
-| `COMMAND_PREFIX` | | `deepwork` | Slash command prefix |
-| `ACTIVITY_NAME` | | `Deep Work` | Activity name shown in messages and embeds |
-| `LOCALE` | | `es` | Language (`es` / `en`) |
-| `TIMEZONE` | | `Europe/Madrid` | Timezone for the weekly summary |
-| `SUMMARY_HOUR` | | `9` | Hour of the Monday weekly summary (0–23) |
-| `POLL_INTERVAL_MS` | | `1800000` | Polling interval in ms (default: 30 min) |
+| `COMMAND_PREFIX` | | `deepwork` | Slash command prefix (baked into command names) |
+| `POLL_INTERVAL_MS` | | `1800000` | Reconciliation poll interval in ms (30 min) |
 | `MIN_SESSION_MINUTES` | | `5` | Minimum session duration to count in stats |
+| `DEFAULT_ACTIVITY_NAME` | | `Deep Work` | Name shown in embeds for new guilds; also used in command descriptions |
+| `DEFAULT_LOCALE` | | `es` | `es` / `en` — default for new guilds; also used in command descriptions |
+| `DEFAULT_TIMEZONE` | | `Europe/Madrid` | Default timezone for new guilds |
+| `DEFAULT_SUMMARY_HOUR` | | `9` | Default weekly summary hour for new guilds (0–23) |
+| `DEV_GUILD_ID` | | — | Dev-only. Registers commands to one guild instantly (skips global 1h propagation) |
 
-> The legacy `VOICE_CHANNEL_ID` (single value) is still supported for backwards compatibility.
+Per-guild settings (managed via `/deepwork-setup config` from Discord):
+
+- **Tracked channels** — one or more voice channels per server
+- **Activity name** — label used in embeds
+- **Locale** — `es` or `en`
+- **Timezone** — any [IANA timezone](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)
+- **Summary hour** — hour (0–23) of the Monday weekly summary, in the guild's timezone
+
+### Single-guild shortcut (optional)
+
+If you're running the bot for just one server and don't want to use `/setup`, set these two env vars and the bot will seed its config automatically on first startup:
+
+```
+GUILD_ID=your_guild_id
+VOICE_CHANNEL_IDS=channel_id_1,channel_id_2
+```
+
+Admins can still change the config from Discord after the initial seed.
 
 ## How it works
 
 **Session tracking** uses a hybrid model:
 - `voiceStateUpdate` events open and close sessions in real time
-- A periodic poll (every `POLL_INTERVAL_MS`) reconciles the actual channel state with the database, recovering sessions missed during bot downtime
+- A periodic poll (every `POLL_INTERVAL_MS`) reconciles actual channel state with the database, recovering sessions missed during bot downtime
 - If a user moves between two tracked channels, the session in the first channel closes and a new one opens in the second
 
-**Data** is stored in a local SQLite file (`sessions.db`) with two tables:
-- `sessions` — one row per session with `started_at`, `ended_at`, `channel_id`, and `duration_minutes`
+**Data** is stored in a local SQLite file (`sessions.db`) with these tables:
+- `guild_configs` — per-server settings (channels, locale, timezone, summary hour, activity name)
+- `sessions` — one row per session with `guild_id`, `started_at`, `ended_at`, `channel_id`, `duration_minutes`
 - `snapshots` — raw poll results for auditing
+- `opt_outs` — per-guild opt-out list
 
-**Co-presence** is calculated at query time by joining sessions with overlapping time ranges.
+**Co-presence** is calculated at query time by joining sessions with overlapping time ranges within the same guild.
 
 ## Adding a language
 

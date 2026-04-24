@@ -1,0 +1,32 @@
+[Unit]
+Description=Clocked — Discord session tracker bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nodeapps
+Group=nodeapps
+WorkingDirectory=/opt/nodeapps/clocked-bot
+EnvironmentFile=/opt/nodeapps/clocked-bot/.env
+ExecStart=/opt/node/bin/node src/index.js
+Restart=on-failure
+RestartSec=5s
+
+# Hardening — restrict what the process can see and do on the host.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/nodeapps/clocked-bot
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

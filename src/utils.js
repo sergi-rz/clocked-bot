@@ -1,10 +1,27 @@
-export const PREFIX   = process.env.COMMAND_PREFIX ?? 'deepwork';
-export const ACTIVITY = process.env.ACTIVITY_NAME  ?? 'Deep Work';
+import { getT, DEFAULT_LOCALE } from './i18n/index.js';
 
-// Supports both VOICE_CHANNEL_IDS (comma-separated list, new) and the legacy
-// VOICE_CHANNEL_ID (single value) so existing configs keep working.
-export const CHANNELS = (process.env.VOICE_CHANNEL_IDS ?? process.env.VOICE_CHANNEL_ID ?? '')
-  .split(',').map(s => s.trim()).filter(Boolean);
+// PREFIX is bot-level: it's baked into the slash command names at registration time,
+// so one bot instance = one prefix for all guilds it serves.
+export const PREFIX = process.env.COMMAND_PREFIX ?? 'deepwork';
+
+// Defaults inherited by every new guild when it's created via /setup
+// (or when legacy env-var config is seeded on startup).
+export const DEFAULTS = {
+  activity_name: process.env.DEFAULT_ACTIVITY_NAME ?? process.env.ACTIVITY_NAME ?? 'Deep Work',
+  locale:        process.env.DEFAULT_LOCALE        ?? process.env.LOCALE        ?? DEFAULT_LOCALE,
+  timezone:      process.env.DEFAULT_TIMEZONE      ?? process.env.TIMEZONE      ?? 'Europe/Madrid',
+  summary_hour:  Number(process.env.DEFAULT_SUMMARY_HOUR ?? process.env.SUMMARY_HOUR ?? 9),
+};
+
+// Shape a config row into a display-ready bundle for commands and scheduler.
+// Always returns a usable object even if a field is NULL in the DB (unconfigured guild).
+export function displayFor(config) {
+  const locale       = config?.locale        ?? DEFAULTS.locale;
+  const activity     = config?.activity_name ?? DEFAULTS.activity_name;
+  const timezone     = config?.timezone      ?? DEFAULTS.timezone;
+  const summary_hour = config?.summary_hour  ?? DEFAULTS.summary_hour;
+  return { t: getT(locale), locale, activity, timezone, summary_hour };
+}
 
 // Returns the Unix timestamp for the start of the given period, or 0 for "all time".
 // Week starts on Monday to match European convention.
@@ -54,8 +71,6 @@ export function computeStreaks(sortedDays) {
     if (run > best) best = run;
   }
 
-  // A streak is still "active" if the user connected today or yesterday.
-  // Yesterday counts because someone who connected late at night hasn't broken their streak yet.
   const today     = new Date().toISOString().slice(0, 10);
   const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
   const last      = sortedDays.at(-1);
