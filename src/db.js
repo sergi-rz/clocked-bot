@@ -201,7 +201,7 @@ function openDuration() {
 
 function rankingSQL(channelFilter, timeFilter) {
   return `
-    SELECT username, COUNT(*) AS session_count, SUM(duration_minutes) AS total_minutes
+    SELECT user_id, username, COUNT(*) AS session_count, SUM(duration_minutes) AS total_minutes
     FROM (
       SELECT user_id, username, duration_minutes FROM sessions
       WHERE guild_id = ? AND ended_at IS NOT NULL AND duration_minutes >= ${MIN}
@@ -214,7 +214,7 @@ function rankingSQL(channelFilter, timeFilter) {
         ${channelFilter ? `AND ${channelFilter}` : ''}
     )
     WHERE user_id NOT IN (SELECT user_id FROM opt_outs WHERE guild_id = ?)
-    GROUP BY user_id ORDER BY total_minutes DESC LIMIT 10
+    GROUP BY user_id ORDER BY total_minutes DESC LIMIT ?
   `;
 }
 
@@ -226,36 +226,36 @@ const _rankFromCh = db.prepare(rankingSQL('channel_id = ?', 'started_at >= ?'));
 // Weekly summary uses a strict time window (Mon–Sun), so it doesn't include
 // the current open session — that belongs to this week, not last week.
 const _rankBetween   = db.prepare(`
-  SELECT username, COUNT(*) AS session_count, SUM(duration_minutes) AS total_minutes
+  SELECT user_id, username, COUNT(*) AS session_count, SUM(duration_minutes) AS total_minutes
   FROM sessions WHERE guild_id = ? AND ended_at IS NOT NULL AND duration_minutes >= ${MIN}
     AND started_at >= ? AND started_at < ?
     AND user_id NOT IN (SELECT user_id FROM opt_outs WHERE guild_id = ?)
-  GROUP BY user_id ORDER BY total_minutes DESC LIMIT 10
+  GROUP BY user_id ORDER BY total_minutes DESC LIMIT ?
 `);
 const _rankBetweenCh = db.prepare(`
-  SELECT username, COUNT(*) AS session_count, SUM(duration_minutes) AS total_minutes
+  SELECT user_id, username, COUNT(*) AS session_count, SUM(duration_minutes) AS total_minutes
   FROM sessions WHERE guild_id = ? AND ended_at IS NOT NULL AND duration_minutes >= ${MIN}
     AND started_at >= ? AND started_at < ?
     AND channel_id = ?
     AND user_id NOT IN (SELECT user_id FROM opt_outs WHERE guild_id = ?)
-  GROUP BY user_id ORDER BY total_minutes DESC LIMIT 10
+  GROUP BY user_id ORDER BY total_minutes DESC LIMIT ?
 `);
 
-export function getRanking(guildId, since = 0, channelId = null) {
+export function getRanking(guildId, since = 0, channelId = null, limit = 10) {
   if (channelId) {
     return since === 0
-      ? _rankAllCh.all(guildId, channelId, guildId, channelId, guildId)
-      : _rankFromCh.all(guildId, since, channelId, guildId, since, channelId, guildId);
+      ? _rankAllCh.all(guildId, channelId, guildId, channelId, guildId, limit)
+      : _rankFromCh.all(guildId, since, channelId, guildId, since, channelId, guildId, limit);
   }
   return since === 0
-    ? _rankAll.all(guildId, guildId, guildId)
-    : _rankFrom.all(guildId, since, guildId, since, guildId);
+    ? _rankAll.all(guildId, guildId, guildId, limit)
+    : _rankFrom.all(guildId, since, guildId, since, guildId, limit);
 }
 
-export function getRankingBetween(guildId, since, until, channelId = null) {
+export function getRankingBetween(guildId, since, until, channelId = null, limit = 10) {
   return channelId
-    ? _rankBetweenCh.all(guildId, since, until, channelId, guildId)
-    : _rankBetween.all(guildId, since, until, guildId);
+    ? _rankBetweenCh.all(guildId, since, until, channelId, guildId, limit)
+    : _rankBetween.all(guildId, since, until, guildId, limit);
 }
 
 // ── user stats ────────────────────────────────────────────────────────────────
@@ -330,7 +330,7 @@ function compSQL(channelFilter, timeFilter) {
       ${channelFilter ? `AND s1.${channelFilter}` : ''}
     GROUP BY s2.user_id
     ORDER BY shared_minutes DESC
-    LIMIT 10
+    LIMIT ?
   `;
 }
 
@@ -339,15 +339,15 @@ const _compAllCh  = db.prepare(compSQL('channel_id = ?', null));
 const _compFrom   = db.prepare(compSQL(null, 'started_at >= ?'));
 const _compFromCh = db.prepare(compSQL('channel_id = ?', 'started_at >= ?'));
 
-export function getCompanions(guildId, userId, since = 0, channelId = null) {
+export function getCompanions(guildId, userId, since = 0, channelId = null, limit = 10) {
   if (channelId) {
     return since === 0
-      ? _compAllCh.all(channelId, guildId, userId, channelId)
-      : _compFromCh.all(channelId, guildId, userId, since, channelId);
+      ? _compAllCh.all(channelId, guildId, userId, channelId, limit)
+      : _compFromCh.all(channelId, guildId, userId, since, channelId, limit);
   }
   return since === 0
-    ? _compAll.all(guildId, userId)
-    : _compFrom.all(guildId, userId, since);
+    ? _compAll.all(guildId, userId, limit)
+    : _compFrom.all(guildId, userId, since, limit);
 }
 
 export default db;

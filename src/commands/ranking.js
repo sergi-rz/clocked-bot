@@ -12,6 +12,16 @@ function formatRows(rows) {
   }).join('\n');
 }
 
+async function leaderAvatar(guild, userId) {
+  if (!guild || !userId) return null;
+  try {
+    const member = await guild.members.fetch(userId);
+    return member.displayAvatarURL({ size: 256 });
+  } catch {
+    return null;
+  }
+}
+
 // Slash commands are registered once globally, so their names and descriptions
 // are taken from DEFAULT_LOCALE + DEFAULT_ACTIVITY_NAME. The per-guild locale and
 // activity name only apply at execution time (in the embed contents).
@@ -31,6 +41,12 @@ export const data = new SlashCommandBuilder()
     opt.setName('channel')
        .setDescription(bootT.opts.channel)
        .addChannelTypes(ChannelType.GuildVoice)
+  )
+  .addIntegerOption(opt =>
+    opt.setName('limit')
+       .setDescription(bootT.opts.limit)
+       .setMinValue(3)
+       .setMaxValue(25)
   );
 
 export async function execute(interaction) {
@@ -40,11 +56,12 @@ export async function execute(interaction) {
 
   const key      = interaction.options.getString('period') ?? 'global';
   const channel  = interaction.options.getChannel('channel');
+  const limit    = interaction.options.getInteger('limit') ?? 10;
   const since    = periodStart(key);
   const label    = t.periods.labels[key];
 
   if (channel || channels.length <= 1) {
-    const rows = getRanking(interaction.guildId, since, channel?.id ?? null);
+    const rows = getRanking(interaction.guildId, since, channel?.id ?? null, limit);
 
     if (!rows.length) {
       return interaction.reply({ content: t.cmd.ranking.noData(label), flags: MessageFlags.Ephemeral });
@@ -54,28 +71,28 @@ export async function execute(interaction) {
       ? `${t.cmd.ranking.title(activity, label)} — #${channel.name}`
       : t.cmd.ranking.title(activity, label);
 
-    return interaction.reply({
-      embeds: [
-        new EmbedBuilder()
-          .setTitle(title)
-          .setDescription(formatRows(rows))
-          .setColor(0x5865f2)
-          .setTimestamp(),
-      ],
-    });
+    const thumb = await leaderAvatar(interaction.guild, rows[0].user_id);
+    const embed = new EmbedBuilder()
+      .setTitle(title)
+      .setDescription(formatRows(rows))
+      .setColor(0x5865f2)
+      .setTimestamp();
+    if (thumb) embed.setThumbnail(thumb);
+
+    return interaction.reply({ embeds: [embed] });
   }
 
   // Multiple channels, no filter: show global aggregate + one section per channel.
   const sections = [];
 
-  const globalRows = getRanking(interaction.guildId, since);
+  const globalRows = getRanking(interaction.guildId, since, null, limit);
   if (globalRows.length) {
     sections.push(`**🌐 Global**\n${formatRows(globalRows)}`);
   }
 
   for (const channelId of channels) {
     const ch   = interaction.client.channels.cache.get(channelId);
-    const rows = getRanking(interaction.guildId, since, channelId);
+    const rows = getRanking(interaction.guildId, since, channelId, limit);
     if (rows.length) {
       sections.push(`**#${ch?.name ?? channelId}**\n${formatRows(rows)}`);
     }
@@ -85,13 +102,13 @@ export async function execute(interaction) {
     return interaction.reply({ content: t.cmd.ranking.noData(label), flags: MessageFlags.Ephemeral });
   }
 
-  await interaction.reply({
-    embeds: [
-      new EmbedBuilder()
-        .setTitle(t.cmd.ranking.title(activity, label))
-        .setDescription(sections.join('\n\n'))
-        .setColor(0x5865f2)
-        .setTimestamp(),
-    ],
-  });
+  const thumb = await leaderAvatar(interaction.guild, globalRows[0]?.user_id);
+  const embed = new EmbedBuilder()
+    .setTitle(t.cmd.ranking.title(activity, label))
+    .setDescription(sections.join('\n\n'))
+    .setColor(0x5865f2)
+    .setTimestamp();
+  if (thumb) embed.setThumbnail(thumb);
+
+  await interaction.reply({ embeds: [embed] });
 }

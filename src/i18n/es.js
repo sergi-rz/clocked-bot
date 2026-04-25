@@ -4,6 +4,7 @@ export default {
   opts: {
     period:  'Periodo',
     channel: 'Canal de voz (opcional, por defecto todos)',
+    limit:   'Número de resultados (3-25, por defecto 10)',
   },
 
   periods: {

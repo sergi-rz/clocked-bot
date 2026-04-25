@@ -42,6 +42,7 @@ export async function execute(interaction) {
 
   const embed = new EmbedBuilder()
     .setTitle(title)
+    .setThumbnail(interaction.user.displayAvatarURL({ size: 256 }))
     .addFields(
       { name: m.fTotal,      value: fmt(stats.total_minutes),   inline: true },
       { name: m.fSessions,   value: `${stats.session_count}`,   inline: true },
