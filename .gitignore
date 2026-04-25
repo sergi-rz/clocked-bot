@@ -6,3 +6,7 @@ node_modules/
 *.db-wal
 CLAUDE.md
 .DS_Store
+
+# Local-only screenshot seeding (contains personal Discord user IDs).
+scripts/seed-fake-data.*
+scripts/wipe-fake-data.sql
