@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, EmbedBuilder, MessageFlags, ChannelType } from 'discord.js';
-import { getRanking, getGuildConfig }                                    from '../db.js';
-import { PREFIX, periodStart, fmt, displayFor }                          from '../utils.js';
+import { getRanking, getRankingBetween, getGuildConfig }                 from '../db.js';
+import { PREFIX, periodRange, fmt, displayFor }                          from '../utils.js';
 import { getT, DEFAULT_LOCALE }                                          from '../i18n/index.js';
 
 const medals = ['🥇', '🥈', '🥉'];
@@ -47,6 +47,10 @@ export const data = new SlashCommandBuilder()
        .setDescription(bootT.opts.limit)
        .setMinValue(3)
        .setMaxValue(25)
+  )
+  .addBooleanOption(opt =>
+    opt.setName('public')
+       .setDescription(bootT.opts.public)
   );
 
 export async function execute(interaction) {
@@ -57,11 +61,19 @@ export async function execute(interaction) {
   const key      = interaction.options.getString('period') ?? 'global';
   const channel  = interaction.options.getChannel('channel');
   const limit    = interaction.options.getInteger('limit') ?? 10;
-  const since    = periodStart(key);
+  const isPublic = interaction.options.getBoolean('public') ?? true;
+  const { since, until } = periodRange(key);
   const label    = t.periods.labels[key];
+  const replyFlags = isPublic ? undefined : MessageFlags.Ephemeral;
+
+  // Closed periods (last_week / last_month) use a strict window over completed
+  // sessions only; open periods include the live estimate of currently-open ones.
+  const rank = (channelId) => until !== null
+    ? getRankingBetween(interaction.guildId, since, until, channelId, limit)
+    : getRanking(interaction.guildId, since, channelId, limit);
 
   if (channel || channels.length <= 1) {
-    const rows = getRanking(interaction.guildId, since, channel?.id ?? null, limit);
+    const rows = rank(channel?.id ?? null);
 
     if (!rows.length) {
       return interaction.reply({ content: t.cmd.ranking.noData(label), flags: MessageFlags.Ephemeral });
@@ -79,20 +91,20 @@ export async function execute(interaction) {
       .setTimestamp();
     if (thumb) embed.setThumbnail(thumb);
 
-    return interaction.reply({ embeds: [embed] });
+    return interaction.reply({ embeds: [embed], flags: replyFlags });
   }
 
   // Multiple channels, no filter: show global aggregate + one section per channel.
   const sections = [];
 
-  const globalRows = getRanking(interaction.guildId, since, null, limit);
+  const globalRows = rank(null);
   if (globalRows.length) {
     sections.push(`**🌐 Global**\n${formatRows(globalRows)}`);
   }
 
   for (const channelId of channels) {
     const ch   = interaction.client.channels.cache.get(channelId);
-    const rows = getRanking(interaction.guildId, since, channelId, limit);
+    const rows = rank(channelId);
     if (rows.length) {
       sections.push(`**#${ch?.name ?? channelId}**\n${formatRows(rows)}`);
     }
@@ -110,5 +122,5 @@ export async function execute(interaction) {
     .setTimestamp();
   if (thumb) embed.setThumbnail(thumb);
 
-  await interaction.reply({ embeds: [embed] });
+  await interaction.reply({ embeds: [embed], flags: replyFlags });
 }

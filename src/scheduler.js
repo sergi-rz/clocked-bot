@@ -1,24 +1,7 @@
 import cron             from 'node-cron';
 import { EmbedBuilder } from 'discord.js';
 import { getRankingBetween, getGuildConfig, getAllActiveGuildConfigs } from './db.js';
-import { displayFor, fmt } from './utils.js';
-
-// Returns the Unix timestamps for the start and end of last week (Monday 00:00 → Sunday 23:59:59).
-// When called on Monday, thisMonday is today, so lastMonday is exactly 7 days ago.
-function lastWeekRange() {
-  const now = new Date();
-
-  const thisMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  thisMonday.setDate(thisMonday.getDate() - ((thisMonday.getDay() + 6) % 7));
-
-  const lastMonday = new Date(thisMonday);
-  lastMonday.setDate(thisMonday.getDate() - 7);
-
-  return {
-    since: Math.floor(lastMonday.getTime() / 1000),
-    until: Math.floor(thisMonday.getTime() / 1000),
-  };
-}
+import { displayFor, fmt, periodRange } from './utils.js';
 
 async function postSummaryToChannel(client, guildId, channelId, since, until, { t, activity }) {
   const channel = client.channels.cache.get(channelId);
@@ -58,7 +41,7 @@ export async function postWeeklySummaryForGuild(client, guildId) {
   const cfg = getGuildConfig(guildId);
   if (!cfg || !cfg.active || !cfg.channel_ids.length) return;
 
-  const { since, until } = lastWeekRange();
+  const { since, until } = periodRange('last_week');
   const display = displayFor(cfg);
 
   for (const channelId of cfg.channel_ids) {
@@ -81,9 +64,17 @@ export function scheduleGuild(client, guildId) {
   if (old) old.stop();
 
   const { timezone, summary_hour } = displayFor(cfg);
+  // node-cron@3 swallows promise rejections from the callback (emits an
+  // unhandled `task-failed` event), so wrap to surface failures in the journal.
   const task = cron.schedule(
     `0 ${summary_hour} * * 1`,
-    () => postWeeklySummaryForGuild(client, guildId),
+    async () => {
+      try {
+        await postWeeklySummaryForGuild(client, guildId);
+      } catch (err) {
+        console.error(`[scheduler] Weekly summary failed for guild ${guildId}:`, err);
+      }
+    },
     { timezone },
   );
   tasks.set(guildId, task);

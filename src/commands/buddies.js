@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, EmbedBuilder, MessageFlags, ChannelType } from 'discord.js';
-import { getCompanions, getGuildConfig }                                 from '../db.js';
-import { PREFIX, periodStart, fmt, displayFor }                          from '../utils.js';
+import { getCompanions, getCompanionsBetween, getGuildConfig }           from '../db.js';
+import { PREFIX, periodRange, fmt, displayFor }                          from '../utils.js';
 import { getT, DEFAULT_LOCALE }                                          from '../i18n/index.js';
 
 const medals = ['🥇', '🥈', '🥉'];
@@ -44,6 +44,10 @@ export const data = new SlashCommandBuilder()
        .setDescription(bootT.opts.limit)
        .setMinValue(3)
        .setMaxValue(25)
+  )
+  .addBooleanOption(opt =>
+    opt.setName('public')
+       .setDescription(bootT.opts.public)
   );
 
 export async function execute(interaction) {
@@ -54,13 +58,19 @@ export async function execute(interaction) {
   const key     = interaction.options.getString('period') ?? 'global';
   const channel = interaction.options.getChannel('channel');
   const limit   = interaction.options.getInteger('limit') ?? 10;
-  const since   = periodStart(key);
+  const isPublic = interaction.options.getBoolean('public') ?? false;
+  const { since, until } = periodRange(key);
   const label   = t.periods.labels[key];
   const userId  = interaction.user.id;
   const together = t.cmd.buddies.together;
+  const replyFlags = isPublic ? undefined : MessageFlags.Ephemeral;
+
+  const buddies = (channelId) => until !== null
+    ? getCompanionsBetween(interaction.guildId, userId, since, until, channelId, limit)
+    : getCompanions(interaction.guildId, userId, since, channelId, limit);
 
   if (channel || channels.length <= 1) {
-    const rows = getCompanions(interaction.guildId, userId, since, channel?.id ?? null, limit);
+    const rows = buddies(channel?.id ?? null);
 
     if (!rows.length) {
       return interaction.reply({ content: t.cmd.buddies.noData(label), flags: MessageFlags.Ephemeral });
@@ -78,20 +88,20 @@ export async function execute(interaction) {
       .setTimestamp();
     if (thumb) embed.setThumbnail(thumb);
 
-    return interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    return interaction.reply({ embeds: [embed], flags: replyFlags });
   }
 
   // Multiple channels, no filter: show global aggregate + one section per channel.
   const sections = [];
 
-  const globalRows = getCompanions(interaction.guildId, userId, since, null, limit);
+  const globalRows = buddies(null);
   if (globalRows.length) {
     sections.push(`**🌐 Global**\n${formatRows(globalRows, together)}`);
   }
 
   for (const channelId of channels) {
     const ch   = interaction.client.channels.cache.get(channelId);
-    const rows = getCompanions(interaction.guildId, userId, since, channelId, limit);
+    const rows = buddies(channelId);
     if (rows.length) {
       sections.push(`**#${ch?.name ?? channelId}**\n${formatRows(rows, together)}`);
     }
@@ -109,5 +119,5 @@ export async function execute(interaction) {
     .setTimestamp();
   if (thumb) embed.setThumbnail(thumb);
 
-  await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+  await interaction.reply({ embeds: [embed], flags: replyFlags });
 }

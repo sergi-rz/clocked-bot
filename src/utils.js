@@ -22,31 +22,47 @@ export function displayFor(config) {
   return { t: getT(locale), locale, activity, timezone, summary_hour };
 }
 
-// Returns the Unix timestamp for the start of the given period, or 0 for "all time".
+// Returns the Unix timestamps that bound the given period.
+//   - until === null → open-ended: caller queries up to "now" and includes live sessions.
+//   - until set      → closed range: caller queries only completed sessions in [since, until).
 // Week starts on Monday to match European convention.
-export function periodStart(key) {
+export function periodRange(key) {
   const now = new Date();
-  let d;
+  const sec = (d) => Math.floor(d.getTime() / 1000);
+
   switch (key) {
     case 'today':
-      d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      break;
+      return { since: sec(new Date(now.getFullYear(), now.getMonth(), now.getDate())), until: null };
     case 'week': {
-      d = new Date(now);
-      d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // Monday
-      d.setHours(0, 0, 0, 0);
-      break;
+      const monday = new Date(now);
+      monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+      monday.setHours(0, 0, 0, 0);
+      return { since: sec(monday), until: null };
     }
     case 'month':
-      d = new Date(now.getFullYear(), now.getMonth(), 1);
-      break;
+      return { since: sec(new Date(now.getFullYear(), now.getMonth(), 1)), until: null };
     case 'year':
-      d = new Date(now.getFullYear(), 0, 1);
-      break;
+      return { since: sec(new Date(now.getFullYear(), 0, 1)), until: null };
+    case 'last_year':
+      return {
+        since: sec(new Date(now.getFullYear() - 1, 0, 1)),
+        until: sec(new Date(now.getFullYear(), 0, 1)),
+      };
+    case 'last_week': {
+      const thisMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      thisMonday.setDate(thisMonday.getDate() - ((thisMonday.getDay() + 6) % 7));
+      const lastMonday = new Date(thisMonday);
+      lastMonday.setDate(thisMonday.getDate() - 7);
+      return { since: sec(lastMonday), until: sec(thisMonday) };
+    }
+    case 'last_month': {
+      const firstOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const firstOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      return { since: sec(firstOfLastMonth), until: sec(firstOfThisMonth) };
+    }
     default:
-      return 0; // global — no time filter
+      return { since: 0, until: null }; // global — no time filter
   }
-  return Math.floor(d.getTime() / 1000);
 }
 
 export function fmt(minutes) {

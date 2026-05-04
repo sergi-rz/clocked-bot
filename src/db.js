@@ -260,7 +260,7 @@ export function getRankingBetween(guildId, since, until, channelId = null, limit
 
 // ── user stats ────────────────────────────────────────────────────────────────
 
-function statsSQL(channelFilter) {
+function statsSQL(channelFilter, timeFilter) {
   return `
     SELECT
       COUNT(*)                           AS session_count,
@@ -270,21 +270,60 @@ function statsSQL(channelFilter) {
     FROM (
       SELECT duration_minutes FROM sessions
       WHERE guild_id = ? AND user_id = ? AND ended_at IS NOT NULL AND duration_minutes >= ${MIN}
+        ${timeFilter ? `AND ${timeFilter}` : ''}
         ${channelFilter ? `AND ${channelFilter}` : ''}
       UNION ALL
       SELECT ${openDuration()} FROM sessions
       WHERE guild_id = ? AND user_id = ? AND ended_at IS NULL
+        ${timeFilter ? `AND ${timeFilter}` : ''}
         ${channelFilter ? `AND ${channelFilter}` : ''}
     )
   `;
 }
 
-const _stats   = db.prepare(statsSQL(null));
-const _statsCh = db.prepare(statsSQL('channel_id = ?'));
+const _stats       = db.prepare(statsSQL(null, null));
+const _statsCh     = db.prepare(statsSQL('channel_id = ?', null));
+const _statsFrom   = db.prepare(statsSQL(null, 'started_at >= ?'));
+const _statsFromCh = db.prepare(statsSQL('channel_id = ?', 'started_at >= ?'));
 
-export function getUserStats(guildId, userId, channelId = null) {
-  if (channelId) return _statsCh.get(guildId, userId, channelId, guildId, userId, channelId);
-  return _stats.get(guildId, userId, guildId, userId);
+// Closed-range stats: completed sessions only, no live estimate of open ones.
+const _statsBetween   = db.prepare(`
+  SELECT
+    COUNT(*)                           AS session_count,
+    COALESCE(SUM(duration_minutes), 0) AS total_minutes,
+    ROUND(AVG(duration_minutes))       AS avg_minutes,
+    MAX(duration_minutes)              AS longest_session
+  FROM sessions
+  WHERE guild_id = ? AND user_id = ? AND ended_at IS NOT NULL AND duration_minutes >= ${MIN}
+    AND started_at >= ? AND started_at < ?
+`);
+const _statsBetweenCh = db.prepare(`
+  SELECT
+    COUNT(*)                           AS session_count,
+    COALESCE(SUM(duration_minutes), 0) AS total_minutes,
+    ROUND(AVG(duration_minutes))       AS avg_minutes,
+    MAX(duration_minutes)              AS longest_session
+  FROM sessions
+  WHERE guild_id = ? AND user_id = ? AND ended_at IS NOT NULL AND duration_minutes >= ${MIN}
+    AND channel_id = ?
+    AND started_at >= ? AND started_at < ?
+`);
+
+export function getUserStats(guildId, userId, channelId = null, since = 0) {
+  if (channelId) {
+    return since === 0
+      ? _statsCh.get(guildId, userId, channelId, guildId, userId, channelId)
+      : _statsFromCh.get(guildId, userId, since, channelId, guildId, userId, since, channelId);
+  }
+  return since === 0
+    ? _stats.get(guildId, userId, guildId, userId)
+    : _statsFrom.get(guildId, userId, since, guildId, userId, since);
+}
+
+export function getUserStatsBetween(guildId, userId, since, until, channelId = null) {
+  return channelId
+    ? _statsBetweenCh.get(guildId, userId, channelId, since, until)
+    : _statsBetween.get(guildId, userId, since, until);
 }
 
 // ── streaks ───────────────────────────────────────────────────────────────────
@@ -326,7 +365,7 @@ function compSQL(channelFilter, timeFilter) {
       AND s2.user_id NOT IN (SELECT user_id FROM opt_outs WHERE guild_id = s2.guild_id)
       ${channelFilter ? `AND s2.${channelFilter}` : ''}
     WHERE s1.guild_id = ? AND s1.user_id = ? AND s1.ended_at IS NOT NULL AND s1.duration_minutes >= ${MIN}
-      ${timeFilter ? `AND s1.${timeFilter}` : ''}
+      ${timeFilter ? `AND ${timeFilter}` : ''}
       ${channelFilter ? `AND s1.${channelFilter}` : ''}
     GROUP BY s2.user_id
     ORDER BY shared_minutes DESC
@@ -334,10 +373,12 @@ function compSQL(channelFilter, timeFilter) {
   `;
 }
 
-const _compAll    = db.prepare(compSQL(null, null));
-const _compAllCh  = db.prepare(compSQL('channel_id = ?', null));
-const _compFrom   = db.prepare(compSQL(null, 'started_at >= ?'));
-const _compFromCh = db.prepare(compSQL('channel_id = ?', 'started_at >= ?'));
+const _compAll        = db.prepare(compSQL(null, null));
+const _compAllCh      = db.prepare(compSQL('channel_id = ?', null));
+const _compFrom       = db.prepare(compSQL(null, 's1.started_at >= ?'));
+const _compFromCh     = db.prepare(compSQL('channel_id = ?', 's1.started_at >= ?'));
+const _compBetween    = db.prepare(compSQL(null, 's1.started_at >= ? AND s1.started_at < ?'));
+const _compBetweenCh  = db.prepare(compSQL('channel_id = ?', 's1.started_at >= ? AND s1.started_at < ?'));
 
 export function getCompanions(guildId, userId, since = 0, channelId = null, limit = 10) {
   if (channelId) {
@@ -348,6 +389,12 @@ export function getCompanions(guildId, userId, since = 0, channelId = null, limi
   return since === 0
     ? _compAll.all(guildId, userId, limit)
     : _compFrom.all(guildId, userId, since, limit);
+}
+
+export function getCompanionsBetween(guildId, userId, since, until, channelId = null, limit = 10) {
+  return channelId
+    ? _compBetweenCh.all(channelId, guildId, userId, since, until, channelId, limit)
+    : _compBetween.all(guildId, userId, since, until, limit);
 }
 
 export default db;
