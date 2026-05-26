@@ -4,8 +4,9 @@ import {
 } from 'discord.js';
 import {
   ensureGuildConfig, getGuildConfig, setGuildChannels, updateGuildField,
+  setReminderTimestamps,
 } from '../db.js';
-import { PREFIX, DEFAULTS, displayFor } from '../utils.js';
+import { PREFIX, DEFAULTS, displayFor, nextReminderAt } from '../utils.js';
 import { scheduleGuild }                from '../scheduler.js';
 import { pollChannel }                  from '../poller.js';
 import { getT, DEFAULT_LOCALE }         from '../i18n/index.js';
@@ -52,6 +53,13 @@ export const data = new SlashCommandBuilder()
       .addIntegerOption(o =>
         o.setName('summary_hour').setDescription(bootT.cmd.setup.optSummaryHour)
          .setMinValue(0).setMaxValue(23))
+  )
+  .addSubcommand(sc =>
+    sc.setName('reminders')
+      .setDescription(bootT.cmd.setup.subReminders)
+      .addStringOption(o =>
+        o.setName('state').setDescription(bootT.cmd.setup.optRemindersOn).setRequired(true)
+         .addChoices({ name: 'on', value: 'on' }, { name: 'off', value: 'off' }))
   );
 
 function isValidTimezone(tz) {
@@ -124,6 +132,7 @@ export async function execute(interaction) {
     }
     const { activity, locale, timezone, summary_hour } = displayFor(cfg);
     const chLines = channels.map(id => `<#${id}>`).join(', ');
+    const remindersState = cfg.reminders_enabled ? s.stateOn : s.stateOff;
 
     const embed = new EmbedBuilder()
       .setTitle(s.listTitle)
@@ -133,6 +142,7 @@ export async function execute(interaction) {
         { name: s.fLocale,      value: locale,        inline: true },
         { name: s.fTimezone,    value: timezone,      inline: true },
         { name: s.fSummaryHour, value: `${summary_hour}:00`, inline: true },
+        { name: s.fReminders,   value: remindersState, inline: true },
       )
       .setColor(0x5865f2);
 
@@ -164,5 +174,29 @@ export async function execute(interaction) {
     }
 
     return interaction.reply({ content: s.configUpdated, flags: MessageFlags.Ephemeral });
+  }
+
+  if (sub === 'reminders') {
+    const wanted = interaction.options.getString('state', true) === 'on';
+    const current = !!cfg.reminders_enabled;
+
+    if (wanted === current) {
+      const stateLabel = wanted ? s.stateOn : s.stateOff;
+      return interaction.reply({ content: s.remindersAlready(stateLabel), flags: MessageFlags.Ephemeral });
+    }
+
+    updateGuildField(guildId, 'reminders_enabled', wanted ? 1 : 0);
+    // Seed the first fire on enable; clear timestamps on disable so a future
+    // re-enable starts fresh rather than firing immediately on the next tick.
+    if (wanted) {
+      setReminderTimestamps(guildId, null, nextReminderAt());
+    } else {
+      setReminderTimestamps(guildId, null, null);
+    }
+
+    return interaction.reply({
+      content: wanted ? s.remindersOn : s.remindersOff,
+      flags: MessageFlags.Ephemeral,
+    });
   }
 }

@@ -1,7 +1,10 @@
 import cron             from 'node-cron';
 import { EmbedBuilder } from 'discord.js';
-import { getRankingBetween, getGuildConfig, getAllActiveGuildConfigs } from './db.js';
-import { displayFor, fmt, periodRange } from './utils.js';
+import {
+  getRankingBetween, getGuildConfig, getAllActiveGuildConfigs,
+  getOpenSessions, setReminderTimestamps, setNextReminderAt,
+} from './db.js';
+import { displayFor, fmt, periodRange, nextReminderAt, REMINDER_RETRY_SECONDS } from './utils.js';
 
 async function postSummaryToChannel(client, guildId, channelId, since, until, { t, activity }) {
   const channel = client.channels.cache.get(channelId);
@@ -94,4 +97,84 @@ export function startScheduler(client) {
   for (const cfg of getAllActiveGuildConfigs()) {
     scheduleGuild(client, cfg.guild_id);
   }
+  startRemindersTick(client);
+}
+
+// ── reminders ────────────────────────────────────────────────────────────────
+//
+// Single global tick every 5 minutes. For each active guild with reminders
+// enabled, if it's time to fire AND there's someone in a tracked channel, post
+// a random phrase to that channel's chat. If no one is around, defer briefly
+// instead of burning the slot — we don't want to ping an empty room, but we
+// also don't want to spam-check every tick the moment a user joins.
+async function postReminderToChannel(client, channelId, phrase) {
+  const channel = client.channels.cache.get(channelId);
+  if (!channel) {
+    console.error(`[reminders] Channel not found: ${channelId}`);
+    return false;
+  }
+  try {
+    await channel.send(phrase);
+    return true;
+  } catch (err) {
+    console.error(`[reminders] Failed to post to ${channelId}:`, err.message);
+    return false;
+  }
+}
+
+async function tickReminders(client) {
+  const now = Math.floor(Date.now() / 1000);
+
+  for (const cfg of getAllActiveGuildConfigs()) {
+    if (!cfg.reminders_enabled) continue;
+    if (!cfg.channel_ids.length) continue;
+    if (cfg.next_reminder_at && now < cfg.next_reminder_at) continue;
+
+    const open = getOpenSessions(cfg.guild_id);
+    if (!open.length) {
+      // Nobody is connected. Defer the next check so we don't re-evaluate
+      // every 5 minutes while the server is quiet, and so a user who joins
+      // doesn't immediately trigger a reminder the second they connect.
+      setNextReminderAt(cfg.guild_id, now + REMINDER_RETRY_SECONDS);
+      continue;
+    }
+
+    const occupiedChannels = new Set(open.map(s => s.channel_id));
+    const targets = cfg.channel_ids.filter(id => occupiedChannels.has(id));
+    if (!targets.length) {
+      setNextReminderAt(cfg.guild_id, now + REMINDER_RETRY_SECONDS);
+      continue;
+    }
+
+    const { t } = displayFor(cfg);
+    const phrase = t.reminders[Math.floor(Math.random() * t.reminders.length)];
+
+    let posted = false;
+    for (const channelId of targets) {
+      // eslint-disable-next-line no-await-in-loop -- sequential is fine; ≤ a handful of channels per guild
+      const ok = await postReminderToChannel(client, channelId, phrase);
+      posted = posted || ok;
+    }
+
+    if (posted) {
+      const next = nextReminderAt(now);
+      setReminderTimestamps(cfg.guild_id, now, next);
+      console.log(`[reminders] Fired for guild ${cfg.guild_id}; next at ${new Date(next * 1000).toISOString()}`);
+    } else {
+      setNextReminderAt(cfg.guild_id, now + REMINDER_RETRY_SECONDS);
+    }
+  }
+}
+
+export function startRemindersTick(client) {
+  // Every 5 minutes. The actual cadence per guild is enforced by next_reminder_at,
+  // not by the cron interval — this just decides how often we check.
+  cron.schedule('*/5 * * * *', async () => {
+    try {
+      await tickReminders(client);
+    } catch (err) {
+      console.error('[reminders] Tick failed:', err);
+    }
+  });
+  console.log('[reminders] Tick started (every 5 min)');
 }

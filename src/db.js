@@ -14,14 +14,17 @@ db.exec(`
   -- Per-guild runtime configuration. Channels, locale, timezone, etc. live here
   -- rather than in env vars so the bot can serve many guilds from a single instance.
   CREATE TABLE IF NOT EXISTS guild_configs (
-    guild_id      TEXT PRIMARY KEY,
-    channel_ids   TEXT    NOT NULL DEFAULT '[]',  -- JSON array of voice channel IDs
-    activity_name TEXT,
-    locale        TEXT,
-    timezone      TEXT,
-    summary_hour  INTEGER,
-    active        INTEGER NOT NULL DEFAULT 1,
-    created_at    INTEGER NOT NULL
+    guild_id           TEXT PRIMARY KEY,
+    channel_ids        TEXT    NOT NULL DEFAULT '[]',  -- JSON array of voice channel IDs
+    activity_name      TEXT,
+    locale             TEXT,
+    timezone           TEXT,
+    summary_hour       INTEGER,
+    active             INTEGER NOT NULL DEFAULT 1,
+    created_at         INTEGER NOT NULL,
+    reminders_enabled  INTEGER NOT NULL DEFAULT 0,
+    last_reminder_at   INTEGER,
+    next_reminder_at   INTEGER
   );
 
   CREATE TABLE IF NOT EXISTS snapshots (
@@ -61,6 +64,22 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_snapshots_guild_user   ON snapshots(guild_id, user_id, captured_at);
 `);
 
+// Additive migrations for guild_configs columns that didn't exist in earlier
+// versions. SQLite has no IF NOT EXISTS on ADD COLUMN, so we introspect first.
+// Keeps existing databases (VPS) working without a wipe.
+{
+  const cols = new Set(db.prepare(`PRAGMA table_info(guild_configs)`).all().map(r => r.name));
+  if (!cols.has('reminders_enabled')) {
+    db.exec(`ALTER TABLE guild_configs ADD COLUMN reminders_enabled INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!cols.has('last_reminder_at')) {
+    db.exec(`ALTER TABLE guild_configs ADD COLUMN last_reminder_at INTEGER`);
+  }
+  if (!cols.has('next_reminder_at')) {
+    db.exec(`ALTER TABLE guild_configs ADD COLUMN next_reminder_at INTEGER`);
+  }
+}
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 function ts() { return Math.floor(Date.now() / 1000); }
@@ -78,12 +97,20 @@ const _insertGuildConfig = db.prepare(`
 `);
 const _setGuildChannels  = db.prepare(`UPDATE guild_configs SET channel_ids = ? WHERE guild_id = ?`);
 const _setGuildField     = {
-  activity_name: db.prepare(`UPDATE guild_configs SET activity_name = ? WHERE guild_id = ?`),
-  locale:        db.prepare(`UPDATE guild_configs SET locale = ?        WHERE guild_id = ?`),
-  timezone:      db.prepare(`UPDATE guild_configs SET timezone = ?      WHERE guild_id = ?`),
-  summary_hour:  db.prepare(`UPDATE guild_configs SET summary_hour = ?  WHERE guild_id = ?`),
-  active:        db.prepare(`UPDATE guild_configs SET active = ?        WHERE guild_id = ?`),
+  activity_name:     db.prepare(`UPDATE guild_configs SET activity_name = ?     WHERE guild_id = ?`),
+  locale:            db.prepare(`UPDATE guild_configs SET locale = ?            WHERE guild_id = ?`),
+  timezone:          db.prepare(`UPDATE guild_configs SET timezone = ?          WHERE guild_id = ?`),
+  summary_hour:      db.prepare(`UPDATE guild_configs SET summary_hour = ?      WHERE guild_id = ?`),
+  active:            db.prepare(`UPDATE guild_configs SET active = ?            WHERE guild_id = ?`),
+  reminders_enabled: db.prepare(`UPDATE guild_configs SET reminders_enabled = ? WHERE guild_id = ?`),
 };
+
+const _setReminderTimestamps = db.prepare(
+  `UPDATE guild_configs SET last_reminder_at = ?, next_reminder_at = ? WHERE guild_id = ?`
+);
+const _setNextReminderAt = db.prepare(
+  `UPDATE guild_configs SET next_reminder_at = ? WHERE guild_id = ?`
+);
 
 function hydrateConfig(row) {
   if (!row) return null;
@@ -121,6 +148,16 @@ export function updateGuildField(guildId, field, value) {
   const stmt = _setGuildField[field];
   if (!stmt) throw new Error(`Unknown guild field: ${field}`);
   stmt.run(value, guildId);
+}
+
+// Reminders: separate setters keep the two-field "fired" update atomic and avoid
+// a generic field setter for state that's only ever written by the scheduler.
+export function setReminderTimestamps(guildId, lastAt, nextAt) {
+  _setReminderTimestamps.run(lastAt, nextAt, guildId);
+}
+
+export function setNextReminderAt(guildId, nextAt) {
+  _setNextReminderAt.run(nextAt, guildId);
 }
 
 // ── session management ────────────────────────────────────────────────────────

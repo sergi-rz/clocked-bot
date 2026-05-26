@@ -65,6 +65,18 @@ export function periodRange(key) {
   }
 }
 
+// Reminders cadence: pick a uniformly random next-fire time between 1h and 2h
+// from "now". The 5-min scheduler tick just polls until now >= next_reminder_at;
+// keeping the randomness here means there's one source of truth for the window.
+export const REMINDER_MIN_SECONDS   = 60 * 60;   // 1 hour
+export const REMINDER_MAX_SECONDS   = 120 * 60;  // 2 hours
+export const REMINDER_RETRY_SECONDS = 10 * 60;   // defer when room is empty
+
+export function nextReminderAt(nowSec = Math.floor(Date.now() / 1000)) {
+  const span = REMINDER_MAX_SECONDS - REMINDER_MIN_SECONDS;
+  return nowSec + REMINDER_MIN_SECONDS + Math.floor(Math.random() * (span + 1));
+}
+
 export function fmt(minutes) {
   if (!minutes) return '0m';
   const h = Math.floor(minutes / 60);
