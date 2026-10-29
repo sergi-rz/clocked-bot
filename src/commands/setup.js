@@ -60,6 +60,14 @@ export const data = new SlashCommandBuilder()
       .addStringOption(o =>
         o.setName('state').setDescription(bootT.cmd.setup.optRemindersOn).setRequired(true)
          .addChoices({ name: 'on', value: 'on' }, { name: 'off', value: 'off' }))
+  )
+  .addSubcommand(sc =>
+    sc.setName('birthdays')
+      .setDescription(bootT.cmd.setup.subBirthdays)
+      .addChannelOption(o =>
+        o.setName('channel')
+         .setDescription(bootT.cmd.setup.optBirthdayChannel)
+         .addChannelTypes(ChannelType.GuildText, ChannelType.GuildVoice))
   );
 
 function isValidTimezone(tz) {
@@ -133,6 +141,7 @@ export async function execute(interaction) {
     const { activity, locale, timezone, summary_hour } = displayFor(cfg);
     const chLines = channels.map(id => `<#${id}>`).join(', ');
     const remindersState = cfg.reminders_enabled ? s.stateOn : s.stateOff;
+    const birthdayChannel = cfg.birthday_channel_id ? `<#${cfg.birthday_channel_id}>` : s.birthdayDefault;
 
     const embed = new EmbedBuilder()
       .setTitle(s.listTitle)
@@ -143,6 +152,7 @@ export async function execute(interaction) {
         { name: s.fTimezone,    value: timezone,      inline: true },
         { name: s.fSummaryHour, value: `${summary_hour}:00`, inline: true },
         { name: s.fReminders,   value: remindersState, inline: true },
+        { name: s.fBirthdays,   value: birthdayChannel, inline: true },
       )
       .setColor(0x5865f2);
 
@@ -196,6 +206,15 @@ export async function execute(interaction) {
 
     return interaction.reply({
       content: wanted ? s.remindersOn : s.remindersOff,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  if (sub === 'birthdays') {
+    const ch = interaction.options.getChannel('channel');
+    updateGuildField(guildId, 'birthday_channel_id', ch?.id ?? null);
+    return interaction.reply({
+      content: ch ? s.birthdayChannelSet(`<#${ch.id}>`) : s.birthdayChannelReset,
       flags: MessageFlags.Ephemeral,
     });
   }

@@ -24,7 +24,8 @@ db.exec(`
     created_at         INTEGER NOT NULL,
     reminders_enabled  INTEGER NOT NULL DEFAULT 0,
     last_reminder_at   INTEGER,
-    next_reminder_at   INTEGER
+    next_reminder_at   INTEGER,
+    birthday_channel_id TEXT                           -- NULL → first tracked channel
   );
 
   CREATE TABLE IF NOT EXISTS snapshots (
@@ -58,6 +59,19 @@ db.exec(`
     PRIMARY KEY (guild_id, user_id)
   );
 
+  -- Birthdays are per-guild too: a user registers it in the servers where they
+  -- want to be greeted. No year is stored — only day and month.
+  -- last_greeted_year makes the daily greeting idempotent across ticks and restarts.
+  CREATE TABLE IF NOT EXISTS birthdays (
+    guild_id          TEXT    NOT NULL,
+    user_id           TEXT    NOT NULL,
+    day               INTEGER NOT NULL,
+    month             INTEGER NOT NULL,
+    last_greeted_year INTEGER,
+    created_at        INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, user_id)
+  );
+
   CREATE INDEX IF NOT EXISTS idx_sessions_guild_user    ON sessions(guild_id, user_id);
   CREATE INDEX IF NOT EXISTS idx_sessions_guild_channel ON sessions(guild_id, channel_id);
   CREATE INDEX IF NOT EXISTS idx_sessions_open          ON sessions(ended_at) WHERE ended_at IS NULL;
@@ -77,6 +91,9 @@ db.exec(`
   }
   if (!cols.has('next_reminder_at')) {
     db.exec(`ALTER TABLE guild_configs ADD COLUMN next_reminder_at INTEGER`);
+  }
+  if (!cols.has('birthday_channel_id')) {
+    db.exec(`ALTER TABLE guild_configs ADD COLUMN birthday_channel_id TEXT`);
   }
 }
 
@@ -102,7 +119,8 @@ const _setGuildField     = {
   timezone:          db.prepare(`UPDATE guild_configs SET timezone = ?          WHERE guild_id = ?`),
   summary_hour:      db.prepare(`UPDATE guild_configs SET summary_hour = ?      WHERE guild_id = ?`),
   active:            db.prepare(`UPDATE guild_configs SET active = ?            WHERE guild_id = ?`),
-  reminders_enabled: db.prepare(`UPDATE guild_configs SET reminders_enabled = ? WHERE guild_id = ?`),
+  reminders_enabled:   db.prepare(`UPDATE guild_configs SET reminders_enabled = ?   WHERE guild_id = ?`),
+  birthday_channel_id: db.prepare(`UPDATE guild_configs SET birthday_channel_id = ? WHERE guild_id = ?`),
 };
 
 const _setReminderTimestamps = db.prepare(
@@ -228,6 +246,56 @@ export function toggleOptOut(guildId, userId) {
       .forEach(s => closeUserSession(guildId, userId, s.channel_id));
     return true; // tracking disabled
   }
+}
+
+// ── birthdays ─────────────────────────────────────────────────────────────────
+
+const _setBirthday = db.prepare(`
+  INSERT INTO birthdays (guild_id, user_id, day, month, created_at) VALUES (?, ?, ?, ?, ?)
+  ON CONFLICT(guild_id, user_id) DO UPDATE SET
+    -- Changing the date resets the greeted marker so a moved birthday still fires this year.
+    last_greeted_year = CASE WHEN day = excluded.day AND month = excluded.month THEN last_greeted_year END,
+    day = excluded.day, month = excluded.month
+`);
+const _getBirthday      = db.prepare(`SELECT * FROM birthdays WHERE guild_id = ? AND user_id = ?`);
+const _removeBirthday   = db.prepare(`DELETE FROM birthdays WHERE guild_id = ? AND user_id = ?`);
+const _guildBirthdays   = db.prepare(`SELECT * FROM birthdays WHERE guild_id = ? ORDER BY month, day`);
+const _birthdaysOn      = db.prepare(`
+  SELECT * FROM birthdays
+  WHERE guild_id = ? AND month = ? AND day IN (?, ?)
+    AND (last_greeted_year IS NULL OR last_greeted_year < ?)
+`);
+const _markGreeted      = db.prepare(
+  `UPDATE birthdays SET last_greeted_year = ? WHERE guild_id = ? AND user_id = ?`
+);
+
+export function setBirthday(guildId, userId, day, month) {
+  _setBirthday.run(guildId, userId, day, month, ts());
+}
+
+export function getBirthday(guildId, userId) {
+  return _getBirthday.get(guildId, userId);
+}
+
+// Returns true if there was a birthday to remove.
+export function removeBirthday(guildId, userId) {
+  return _removeBirthday.run(guildId, userId).changes > 0;
+}
+
+export function getGuildBirthdays(guildId) {
+  return _guildBirthdays.all(guildId);
+}
+
+// Birthdays due on the given local date that haven't been greeted this year.
+// Feb 29 birthdays are greeted on Feb 28 in non-leap years, hence the extra day.
+export function getPendingBirthdays(guildId, year, month, day) {
+  const isLeap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+  const extra  = (month === 2 && day === 28 && !isLeap) ? 29 : day;
+  return _birthdaysOn.all(guildId, month, day, extra, year);
+}
+
+export function markBirthdayGreeted(guildId, userId, year) {
+  _markGreeted.run(year, guildId, userId);
 }
 
 // ── rankings ──────────────────────────────────────────────────────────────────

@@ -11,6 +11,7 @@ import * as mystats                              from './commands/mystats.js';
 import * as buddies                              from './commands/buddies.js';
 import * as optout                               from './commands/optout.js';
 import * as setup                                from './commands/setup.js';
+import * as birthday                             from './commands/birthday.js';
 
 const client = new Client({
   intents: [
@@ -20,7 +21,7 @@ const client = new Client({
 });
 
 client.commands = new Collection();
-for (const cmd of [ranking, mystats, buddies, optout, setup]) {
+for (const cmd of [ranking, mystats, buddies, optout, setup, birthday]) {
   client.commands.set(cmd.data.name, cmd);
 }
 

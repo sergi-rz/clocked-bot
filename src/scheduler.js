@@ -3,8 +3,12 @@ import { EmbedBuilder } from 'discord.js';
 import {
   getRankingBetween, getGuildConfig, getAllActiveGuildConfigs,
   getOpenSessions, setReminderTimestamps, setNextReminderAt,
+  getPendingBirthdays, markBirthdayGreeted,
 } from './db.js';
-import { displayFor, fmt, periodRange, nextReminderAt, REMINDER_RETRY_SECONDS } from './utils.js';
+import {
+  displayFor, fmt, periodRange, nextReminderAt, REMINDER_RETRY_SECONDS,
+  localDateParts, BIRTHDAY_HOUR,
+} from './utils.js';
 
 async function postSummaryToChannel(client, guildId, channelId, since, until, { t, activity }) {
   const channel = client.channels.cache.get(channelId);
@@ -98,6 +102,7 @@ export function startScheduler(client) {
     scheduleGuild(client, cfg.guild_id);
   }
   startRemindersTick(client);
+  startBirthdaysTick(client);
 }
 
 // ── reminders ────────────────────────────────────────────────────────────────
@@ -177,4 +182,68 @@ export function startRemindersTick(client) {
     }
   });
   console.log('[reminders] Tick started (every 5 min)');
+}
+
+// ── birthdays ───────────────────────────────────────────────────────────────
+//
+// Single global tick every 15 minutes. For each active guild, once the local
+// time (guild timezone) reaches BIRTHDAY_HOUR, greet everyone whose birthday is
+// today and who hasn't been greeted this year. last_greeted_year makes it safe
+// to tick repeatedly and to restart the bot mid-day: a missed 9:00 still fires
+// on the next tick, and nobody is greeted twice.
+async function greetBirthday(client, cfg, channelId, row, t) {
+  const channel = client.channels.cache.get(channelId);
+  if (!channel) {
+    console.error(`[birthdays] Channel not found: ${cfg.guild_id}/${channelId}`);
+    return false;
+  }
+
+  // Skip (and mark) users who already left the server — no point pinging a ghost.
+  const guild = client.guilds.cache.get(cfg.guild_id);
+  const member = await guild?.members.fetch(row.user_id).catch(() => null);
+  if (!member) {
+    console.log(`[birthdays] ${row.user_id} is no longer in guild ${cfg.guild_id}; skipping`);
+    return true;
+  }
+
+  const phrases = t.birthdays.phrases;
+  const phrase  = phrases[Math.floor(Math.random() * phrases.length)](`<@${row.user_id}>`);
+  try {
+    await channel.send({ content: phrase, allowedMentions: { users: [row.user_id] } });
+    return true;
+  } catch (err) {
+    console.error(`[birthdays] Failed to post to ${channelId}:`, err.message);
+    return false;
+  }
+}
+
+export async function tickBirthdays(client) {
+  for (const cfg of getAllActiveGuildConfigs()) {
+    const channelId = cfg.birthday_channel_id ?? cfg.channel_ids[0];
+    if (!channelId) continue;
+
+    const { t, timezone } = displayFor(cfg);
+    const { year, month, day, hour } = localDateParts(timezone);
+    if (hour < BIRTHDAY_HOUR) continue;
+
+    for (const row of getPendingBirthdays(cfg.guild_id, year, month, day)) {
+      // eslint-disable-next-line no-await-in-loop -- sequential is fine; ≤ a handful per day
+      const ok = await greetBirthday(client, cfg, channelId, row, t);
+      if (ok) {
+        markBirthdayGreeted(cfg.guild_id, row.user_id, year);
+        console.log(`[birthdays] Greeted ${row.user_id} in guild ${cfg.guild_id}`);
+      }
+    }
+  }
+}
+
+export function startBirthdaysTick(client) {
+  cron.schedule('*/15 * * * *', async () => {
+    try {
+      await tickBirthdays(client);
+    } catch (err) {
+      console.error('[birthdays] Tick failed:', err);
+    }
+  });
+  console.log(`[birthdays] Tick started (every 15 min, greets from ${BIRTHDAY_HOUR}:00 local)`);
 }

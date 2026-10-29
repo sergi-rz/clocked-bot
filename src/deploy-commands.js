@@ -5,9 +5,10 @@ import { data as mystatsData } from './commands/mystats.js';
 import { data as buddiesData } from './commands/buddies.js';
 import { data as optoutData }  from './commands/optout.js';
 import { data as setupData }   from './commands/setup.js';
+import { data as birthdayData } from './commands/birthday.js';
 
 const rest     = new REST().setToken(process.env.DISCORD_TOKEN);
-const commands = [rankingData, mystatsData, buddiesData, optoutData, setupData].map(d => d.toJSON());
+const commands = [rankingData, mystatsData, buddiesData, optoutData, setupData, birthdayData].map(d => d.toJSON());
 
 // DEV_GUILD_ID registers commands to a single guild for instant propagation
 // during development. Without it, commands register globally (up to 1h to appear,

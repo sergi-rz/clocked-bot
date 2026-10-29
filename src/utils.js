@@ -77,6 +77,18 @@ export function nextReminderAt(nowSec = Math.floor(Date.now() / 1000)) {
   return nowSec + REMINDER_MIN_SECONDS + Math.floor(Math.random() * (span + 1));
 }
 
+// Birthdays are greeted from this local hour (guild timezone) onwards.
+export const BIRTHDAY_HOUR = 9;
+
+// Calendar date and hour "right now" in an IANA timezone, as numbers.
+export function localDateParts(timeZone, date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone, year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', hourCycle: 'h23',
+  }).formatToParts(date);
+  const get = (type) => Number(parts.find(p => p.type === type).value);
+  return { year: get('year'), month: get('month'), day: get('day'), hour: get('hour') };
+}
+
 export function fmt(minutes) {
   if (!minutes) return '0m';
   const h = Math.floor(minutes / 60);
