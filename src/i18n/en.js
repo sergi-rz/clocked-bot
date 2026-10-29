@@ -137,6 +137,10 @@ export default {
   },
 
   birthdays: {
+    // Appended under the greeting: activity in the 365 days before today.
+    stats: (time, n, a) => `📊 Their last year in the room: **${time}** of ${a} across ${n} ${n === 1 ? 'session' : 'sessions'}.`,
+    buddy: (u, time)    => `Most time shared with: ${u} (${time} together).`,
+
     // Each phrase receives the user mention (<@id>).
     phrases: [
       (u) => `🎂 It's ${u}'s birthday today! One more lap around the sun and not a single stretch break. Happy birthday 🥳`,

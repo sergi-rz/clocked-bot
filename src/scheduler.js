@@ -4,6 +4,7 @@ import {
   getRankingBetween, getGuildConfig, getAllActiveGuildConfigs,
   getOpenSessions, setReminderTimestamps, setNextReminderAt,
   getPendingBirthdays, markBirthdayGreeted,
+  isOptedOut, getUserStatsBetween, getCompanionsBetween,
 } from './db.js';
 import {
   displayFor, fmt, periodRange, nextReminderAt, REMINDER_RETRY_SECONDS,
@@ -191,7 +192,29 @@ export function startRemindersTick(client) {
 // today and who hasn't been greeted this year. last_greeted_year makes it safe
 // to tick repeatedly and to restart the bot mid-day: a missed 9:00 still fires
 // on the next tick, and nobody is greeted twice.
-async function greetBirthday(client, cfg, channelId, row, t) {
+
+// Personal touch: what the user did in the 365 days before today (a full year,
+// whatever the date). Returns null when there's nothing worth saying or the user
+// opted out of tracking.
+const YEAR_SECONDS = 365 * 86_400;
+
+function birthdayStatsLine(guildId, userId, { t, activity }) {
+  if (isOptedOut(guildId, userId)) return null;
+
+  const until = Math.floor(Date.now() / 1000);
+  const since = until - YEAR_SECONDS;
+  const stats = getUserStatsBetween(guildId, userId, since, until);
+  if (!stats?.session_count) return null;
+
+  const [buddy] = getCompanionsBetween(guildId, userId, since, until, null, 1);
+  const line = t.birthdays.stats(fmt(stats.total_minutes), stats.session_count, activity);
+  return buddy?.shared_minutes > 0
+    ? `${line} ${t.birthdays.buddy(`<@${buddy.user_id}>`, fmt(buddy.shared_minutes))}`
+    : line;
+}
+
+async function greetBirthday(client, cfg, channelId, row, display) {
+  const { t } = display;
   const channel = client.channels.cache.get(channelId);
   if (!channel) {
     console.error(`[birthdays] Channel not found: ${cfg.guild_id}/${channelId}`);
@@ -208,8 +231,11 @@ async function greetBirthday(client, cfg, channelId, row, t) {
 
   const phrases = t.birthdays.phrases;
   const phrase  = phrases[Math.floor(Math.random() * phrases.length)](`<@${row.user_id}>`);
+  const stats   = birthdayStatsLine(cfg.guild_id, row.user_id, display);
+  const content = stats ? `${phrase}\n${stats}` : phrase;
   try {
-    await channel.send({ content: phrase, allowedMentions: { users: [row.user_id] } });
+    // Only the birthday person is pinged; the buddy mention renders but stays silent.
+    await channel.send({ content, allowedMentions: { users: [row.user_id] } });
     return true;
   } catch (err) {
     console.error(`[birthdays] Failed to post to ${channelId}:`, err.message);
@@ -222,13 +248,13 @@ export async function tickBirthdays(client) {
     const channelId = cfg.birthday_channel_id ?? cfg.channel_ids[0];
     if (!channelId) continue;
 
-    const { t, timezone } = displayFor(cfg);
-    const { year, month, day, hour } = localDateParts(timezone);
+    const display = displayFor(cfg);
+    const { year, month, day, hour } = localDateParts(display.timezone);
     if (hour < BIRTHDAY_HOUR) continue;
 
     for (const row of getPendingBirthdays(cfg.guild_id, year, month, day)) {
       // eslint-disable-next-line no-await-in-loop -- sequential is fine; ≤ a handful per day
-      const ok = await greetBirthday(client, cfg, channelId, row, t);
+      const ok = await greetBirthday(client, cfg, channelId, row, display);
       if (ok) {
         markBirthdayGreeted(cfg.guild_id, row.user_id, year);
         console.log(`[birthdays] Greeted ${row.user_id} in guild ${cfg.guild_id}`);

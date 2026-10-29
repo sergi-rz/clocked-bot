@@ -137,6 +137,10 @@ export default {
   },
 
   birthdays: {
+    // Appended under the greeting: activity in the 365 days before today.
+    stats: (time, n, a) => `📊 Su último año en la sala: **${time}** de ${a} en ${n} ${n === 1 ? 'sesión' : 'sesiones'}.`,
+    buddy: (u, time)    => `Con quien más ha coincidido: ${u} (${time} juntos).`,
+
     // Each phrase receives the user mention (<@id>).
     phrases: [
       (u) => `🎂 ¡Hoy cumple años ${u}! Una vuelta más al sol y ni una sola pausa para estirar. Felicidades 🥳`,
